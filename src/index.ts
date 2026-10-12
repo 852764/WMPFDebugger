@@ -174,6 +174,8 @@ const main = async () => {
         await hook.script.unload();
         await hook.session.detach();
     };
+    process.on("message", (message: any) => { if (message?.type === "wmpf-shutdown") void shutdown().then(() => process.exit(0)); });
+    if (process.send) process.once("disconnect", () => { void shutdown().then(() => process.exit(0)); });
     process.once("SIGINT", () => { void shutdown().then(() => process.exit(0)); });
     process.once("SIGTERM", () => { void shutdown().then(() => process.exit(0)); });
 };

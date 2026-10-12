@@ -1,5 +1,7 @@
 # 小程序 MCP 与商品金额统计
 
+> 已新增链接自动采集任务，支持分页、去重、报告和中断恢复，详见 [自动流程说明](AUTOMATION.zh.md)。以下为低层手动调试工具的用法。
+
 本分支基于 [evi0s/WMPFDebugger](https://github.com/evi0s/WMPFDebugger)，保留上游 Frida 注入、版本配置、贡献者和 GPL-2.0-only 许可证。新增本地 stdio MCP 服务，由已有 AI 客户端调用，不需要在项目里配置模型 API key。
 
 ## 运行方式
@@ -23,7 +25,7 @@ npm run debug
 4. AI 客户端启动 `wmpf-miniapp` MCP 服务，调用 `miniapp_targets`、`miniapp_connect`、`miniapp_contexts`，确认目标身份。
 5. 开启抓包后再进入商品列表或翻页，抓取后续请求。
 
-MCP 服务自身不注入 Frida，也不强制启动微信；调试代理和 MCP 是两个进程。调试代理日志可输出到普通终端，MCP 的 stdout 只用于 JSON-RPC。
+低层调试工具不自动注入 Frida；新增自动任务可按需启动调试器和打开小程序；调试代理和 MCP 是两个进程。调试代理日志可输出到普通终端，MCP 的 stdout 只用于 JSON-RPC。
 
 常规启动 `npm run debug -- --auto-detect` 可尝试上游的 Windows 自动偏移检测功能，但未知版本仍需实际验证。MCP 没有改变上游对运行时版本的依赖。
 

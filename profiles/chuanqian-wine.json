@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "id": "chuanqian-wine",
+  "name": "川黔纯粮酒-龙氏酒业",
+  "shareNames": [
+    "川黔纯粮酒-龙氏酒业"
+  ],
+  "shareCodes": [
+    "DMlLBrOIODZkN9G"
+  ],
+  "appId": "wx5c3807c8b75c37ac",
+  "scope": "商城“全部”分类当前可见商品；按商品 form_data.id 去重；商品当前 price（元）× sales（接口销量）。不是实际订单收入。",
+  "currency": "CNY",
+  "evidence": {
+    "identity": "2026-10-12 用户提供分享链接，在微信搜索同名小程序打开，服务上下文 appId=wx5c3807c8b75c37ac，商城 app_id=Bxqz2Texx0。此适配仅支持已核验分享码，不解码任意分享码。",
+    "productId": "商城 getFormDataList 返回 data[*].form_data.id 为商品 ID；goods_model 是规格，不能再叠加父商品销量。",
+    "price": "商城模板价格文本绑定 price，人民币符号 ￥；例如 13527831 price=38.00，首页标价38元。",
+    "sales": "goods_list 的 isHideSales=false，商品 form_data.sales=2122；sales 是店铺接口展示销量，来源真实性及历史成交价未审计。",
+    "pagination": "实机响应 current_page=1,total_page=7,count=51,is_more=1，page_size=8。每页核对 current_page/count/total_page/is_more，终页必须一致。",
+    "unfilteredCatalog": "商城 dynamic_classify2.classifyData 首项为“全部”，currentCategory=['','']，idx_arr.idx_value=''，无关键词；观察 onPullDownRefresh 的原始请求。"
+  },
+  "request": {
+    "url": "https://xcx.zhichiweiye.com/index.php?r=AppData/getFormDataList",
+    "method": "POST",
+    "data": {
+      "page": 1,
+      "page_size": "8",
+      "form": "goods",
+      "idx_arr[idx]": "category",
+      "idx_arr[idx_value]": "",
+      "sort_key": "weight",
+      "pick_up_type[0]": "1",
+      "pick_up_type[1]": "2",
+      "pick_up_type[2]": "3",
+      "pick_up_type[3]": "4",
+      "show_cross_border_goods": 2,
+      "app_id": "Bxqz2Texx0",
+      "_app_id": "Bxqz2Texx0"
+    },
+    "useObservedTemplate": true,
+    "successPath": "status",
+    "successValue": 0
+  },
+  "bootstrap": {
+    "route": "/pages/page10041/page10041",
+    "action": "switchTab",
+    "refreshList": true
+  },
+  "products": {
+    "itemsPath": "data",
+    "idPaths": [
+      "form_data.id"
+    ],
+    "titlePath": "form_data.title",
+    "pricePath": "form_data.price",
+    "salesPath": "form_data.sales",
+    "priceUnit": "yuan"
+  },
+  "pagination": {
+    "kind": "page",
+    "requestPath": "page",
+    "start": 1,
+    "currentPagePath": "current_page",
+    "totalPagesPath": "total_page",
+    "totalItemsPath": "count",
+    "hasMorePath": "is_more",
+    "totalItemsMeaning": "rows"
+  },
+  "windowTitle": "川黔纯粮酒"
+}

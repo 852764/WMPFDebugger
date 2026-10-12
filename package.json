@@ -21,7 +21,8 @@
     "debug": "ts-node src/index.ts",
     "mcp": "ts-node src/mcp/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --require ts-node/register --test tests/*.test.ts"
+    "test": "node --require ts-node/register --test tests/*.test.ts",
+    "collect": "ts-node src/automation/cli.ts"
   },
   "engines": {
     "node": ">=22"

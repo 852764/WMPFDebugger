@@ -24,7 +24,7 @@ export function requestHook(action: "install" | "drain" | "remove") {
     if (state) state.active = false;
     const original = g.wx.request;
     const descriptor = Object.getOwnPropertyDescriptor(g.wx, "request");
-    const s: any = { original, descriptor, queue: [], dropped: 0, counter: 0, active: true };
+    const s: any = { original, descriptor, queue: [], dropped: 0, counter: 0, active: true, templates: new Map() };
     function copy(value: any) {
         try {
             if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return undefined;
@@ -39,6 +39,10 @@ export function requestHook(action: "install" | "drain" | "remove") {
     }
     s.wrapper = function(this: any, options: any, ...rest: any[]) {
         if (!options || typeof options !== "object") return original.call(this, options, ...rest);
+        const signature = String(options.method || "GET").toUpperCase() + " " + String(options.url || "");
+        if (!s.templates.has(signature) && s.templates.size >= 40) s.templates.delete(s.templates.keys().next().value);
+        const { success, fail, complete, ...template } = options;
+        try { if (JSON.stringify(template).length <= 65536) s.templates.set(signature, template); } catch {}
         const id = ++s.counter;
         const started = Date.now();
         const base = { id, url: String(options.url || ""), method: options.method || "GET", started };

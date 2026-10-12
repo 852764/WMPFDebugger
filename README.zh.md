@@ -1,6 +1,6 @@
 # WMPFDebugger
 
-> This fork adds a local mini-program MCP server: structured interaction, network capture, and deduplicated price x sales reports. See [MCP 使用说明](docs/MCP.zh.md) and [client configuration](examples/mcp-servers.json).
+> This fork adds a local mini-program MCP server: structured interaction, network capture, and deduplicated price x sales reports. See [link-to-amount automation](docs/AUTOMATION.zh.md), [MCP 使用说明](docs/MCP.zh.md) and [client configuration](examples/mcp-servers.json).
 
 
 又一个 Windows / macOS 微信小程序调试工具

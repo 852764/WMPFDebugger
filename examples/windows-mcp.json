@@ -1,0 +1,7 @@
+{
+  "command": "uvx",
+  "args": [
+    "windows-mcp",
+    "serve"
+  ]
+}

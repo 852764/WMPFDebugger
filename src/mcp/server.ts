@@ -1,3 +1,5 @@
+import { AutomationManager } from "../automation/engine";
+import { listProfiles } from "../automation/profile";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MiniappSession } from "./session";
@@ -18,6 +20,7 @@ const mappingSchema = z.object({
 });
 
 export function createMcpServer(session = new MiniappSession()) {
+    const automation = new AutomationManager();
     const server = new McpServer({ name: "wmpf-miniapp", version: "0.1.0" });
     // Serialize calls so target changes cannot race an action or mix capture datasets.
     let queue: Promise<unknown> = Promise.resolve();
@@ -32,6 +35,13 @@ export function createMcpServer(session = new MiniappSession()) {
             return run;
         });
     }
+    tool("miniapp_profiles", "List verified link adapters, amount definitions and evidence. Unknown links need discovery and a verified profile before automatic collection.", {}, async () => (await listProfiles()).map(p => ({id:p.id,name:p.name,appId:p.appId,shareNames:p.shareNames,shareCodes:p.shareCodes,scope:p.scope,evidence:p.evidence})), true);
+    tool("miniapp_collect_start", "Start asynchronous link-to-amount collection. Reuses a matching open app; desktop=true allows Windows-MCP to open/reenter WeChat. Returns a run ID immediately. Check status/report; complete totals require proven pagination and valid fields.", {
+        link:z.string().min(1).max(300),profileId:z.string().optional(),resumeId:z.string().optional(),port:portSchema,desktop:z.boolean().default(true),
+    }, async args => { if(session.cdp.connected)throw Error("Disconnect this MCP debug session before starting automatic collection.");return automation.start(args); });
+    tool("miniapp_collect_status", "Read asynchronous collection progress and recovery hints.", {runId:z.string()}, ({runId})=>automation.status(runId), true);
+    tool("miniapp_collect_report", "Read collection summary plus a bounded page of unique products. Missing/incomplete totals remain null. JSON/CSV paths appear in status.", {runId:z.string(),offset:z.number().int().min(0).default(0),limit:z.number().int().min(0).max(100).default(20)}, ({runId,offset,limit})=>automation.report(runId,offset,limit), true);
+    tool("miniapp_collect_cancel", "Cancel this MCP process's collection and retain checkpoints for resume.", {runId:z.string()}, ({runId})=>automation.cancel(runId));
     tool("miniapp_targets", "List local WMPF runtime targets. Start WMPFDebugger, then reopen the mini-program using Windows-MCP.", { port: portSchema }, async ({ port }) => {
         const response = await fetch("http://127.0.0.1:" + port + "/json/list", { signal: AbortSignal.timeout(5000) });
         if (!response.ok) throw new Error("Target discovery failed: HTTP " + response.status);
@@ -143,5 +153,5 @@ export function createMcpServer(session = new MiniappSession()) {
     tool("miniapp_products_reset", "Delete the selected in-memory product dataset to change its mapping or begin a fresh run.", { dataset }, ({ dataset }) => {
         session.datasets.delete(dataset); return { reset: dataset };
     });
-    return { server, session };
+    return { server, session, automation };
 }

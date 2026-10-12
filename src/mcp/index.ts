@@ -2,12 +2,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { createMcpServer } from "./server";
 
 async function main() {
-    const { server, session } = createMcpServer();
+    const { server, session, automation } = createMcpServer();
     const transport = new StdioServerTransport();
     let closing = false;
     const shutdown = async () => {
         if (closing) return;
         closing = true;
+        await automation.close();
         await session.close();
         await server.close();
     };
