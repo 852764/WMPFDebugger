@@ -1,5 +1,8 @@
 # WMPFDebugger
 
+> This fork adds a local mini-program MCP server: structured interaction, network capture, and deduplicated price x sales reports. See [MCP 使用说明](docs/MCP.zh.md) and [client configuration](examples/mcp-servers.json).
+
+
 又一个 Windows / macOS 微信小程序调试工具
 
 这个工具通过 patch 一些 Chrome 调试协议（CDP）的过滤器和其他的条件判断来强制小程序连接到外部调试器（也就是远程调试，LanDebug 模式）。这个调试协议是基于 protobuf 实现的私有协议，通过逆向开发者工具提取相应的协议实现，该工具实现了一个简单的小程序调试协议转换为标准 Chrome 调试协议，从而允许我们使用标准基于 chromium 浏览器的内嵌开发者工具来调试任意小程序

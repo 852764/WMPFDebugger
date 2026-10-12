@@ -1,51 +1,20 @@
 import { IPlatform, WmpfProcessInfo } from "./types";
-import * as frida from "frida"
+import * as frida from "frida";
 
 export class WindowsPlatform implements IPlatform {
     async findWmpfProcess(): Promise<WmpfProcessInfo> {
-        const localDevice = await frida.getLocalDevice();
-        const processes = await localDevice.enumerateProcesses({
-            scope: frida.Scope.Metadata,
-        });
-        const wmpfProcesses = processes.filter(
-            (process) => process.name === "WeChatAppEx.exe",
-        );
-        const wmpfPids = wmpfProcesses.map((p) =>
-            p.parameters.ppid !== undefined
-                ? Number(p.parameters.ppid)
-                : 0,
-        );
-
-        // find the parent process
-        const wmpfPid = wmpfPids
-            .sort(
-                (a, b) =>
-                    wmpfPids.filter((v) => v === a).length -
-                    wmpfPids.filter((v) => v === b).length,
-            )
-            .pop();
-        if (wmpfPid === undefined) {
-            throw new Error("[frida] WeChatAppEx.exe process not found");
-        }
-        const wmpfProcess = processes.find(
-            (process) => process.pid === wmpfPid,
-        );
-        if (wmpfProcess === undefined) {
-            throw new Error("[frida] wmpf browser process not found");
-        }
-        const wmpfProcessArgv = wmpfProcess.parameters.argv as Array<string>;
-        const flueRuntimeDir = wmpfProcessArgv.find(e => e.startsWith("--flue-runtime-dir"));
-        // legacy wmpf path fall back
-        const matchPath = flueRuntimeDir ? flueRuntimeDir : wmpfProcess.parameters.path as string | undefined;
-        const wmpfVersionMatch = matchPath
-            ? matchPath.match(/\d+/g)
-            : "";
-        const wmpfVersion = wmpfVersionMatch
-            ? Number(wmpfVersionMatch.pop())
-            : 0;
-        if (wmpfVersion === 0) {
-            throw new Error("[frida] error in find wmpf version");
-        }
-        return { pid: Number(wmpfPid), version: wmpfVersion }
+        const processes = await (await frida.getLocalDevice()).enumerateProcesses({ scope: frida.Scope.Metadata });
+        const candidates = processes.filter(p => p.name === "WeChatAppEx.exe"
+            && !/WXWork|wmpf_Applet/i.test(String(p.parameters.path || "")));
+        // Prefer the browser process itself. Do not choose the busiest parent: it can be WXWork.
+        const parents = candidates.filter(p => candidates.some(child => Number(child.parameters.ppid) === p.pid));
+        const browser = parents.find(p => !(p.parameters.argv as string[] | undefined)?.some(a => a.startsWith("--type=")))
+            || parents[0];
+        if (!browser) throw new Error("[frida] WeChat mini-program runtime not found. Open a mini-program once, close its window, then retry.");
+        const argv = (browser.parameters.argv || []) as string[];
+        const location = argv.find(a => a.startsWith("--flue-runtime-dir")) || String(browser.parameters.path || "");
+        const versionMatch = location.match(/RadiumWMPF[\\/](\d+)[\\/]/i);
+        if (!versionMatch) throw new Error("[frida] Cannot identify WMPF version from runtime path: " + location);
+        return { pid: browser.pid, version: Number(versionMatch[1]) };
     }
 }

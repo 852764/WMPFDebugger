@@ -1,17 +1,11 @@
 import { promises } from "node:fs";
-import { EventEmitter } from "node:events";
 import path from "node:path";
 import * as frida from "frida";
-import WebSocket, { WebSocketServer } from "ws";
+import { startBridge } from "./bridge";
 
 import { platform } from "./platform";
 import { parse_cli_options, CliOptions } from "./cli";
 import { create_logger, Logger } from "./logger";
-
-const codex = require("./third-party/RemoteDebugCodex.js");
-const messageProto = require("./third-party/WARemoteDebugProtobuf.js");
-
-class DebugMessageEmitter extends EventEmitter {}
 
 type StructOffsetConfig = {
     LaunchConfigOffsets: number[];
@@ -28,132 +22,6 @@ type HookConfig = {
     CastToJsonHookOffset?: string;
     SceneOffsets?: number[];
     MiniAppConfigStructOffsets?: StructOffsetConfig;
-};
-
-const debugMessageEmitter = new DebugMessageEmitter();
-
-const bufferToHexString = (buffer: ArrayBuffer) => {
-    return Array.from(new Uint8Array(buffer))
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join("");
-};
-
-const debugServer = (options: CliOptions, logger: Logger): WebSocketServer  => {
-    const wss = new WebSocketServer({ port: options.debugPort });
-    logger.info(
-        `[server] debug server running on ws://localhost:${options.debugPort}`,
-    );
-    logger.info(`[server] debug server waiting for miniapp to connect...`);
-
-    let messageCounter = 0;
-
-    const onMessage = (message: ArrayBuffer) => {
-        logger.main_debug(
-            `[miniapp] client received raw message (hex): ${bufferToHexString(message)}`,
-        );
-        let unwrappedData: any = null;
-        try {
-            const decodedData =
-                messageProto.mmbizwxadevremote.WARemoteDebug_DebugMessage.decode(
-                    message,
-                );
-            unwrappedData = codex.unwrapDebugMessageData(decodedData);
-            logger.main_debug(`[miniapp] [DEBUG] decoded data:`);
-            logger.main_debug(unwrappedData);
-        } catch (e) {
-            logger.error(`[miniapp] miniapp client err: ${e}`);
-        }
-
-        if (unwrappedData === null) {
-            return;
-        }
-
-        if (unwrappedData.category === "chromeDevtoolsResult") {
-            // need to proxy to CDP client
-            debugMessageEmitter.emit("cdpmessage", unwrappedData.data.payload);
-        }
-    };
-
-    wss.on("connection", (ws: WebSocket) => {
-        logger.info("[miniapp] miniapp client connected");
-        ws.on("message", onMessage);
-        ws.on("error", (err) => {
-            logger.error("[miniapp] miniapp client err:", err);
-        });
-        ws.on("close", () => {
-            logger.info("[miniapp] miniapp client disconnected");
-        });
-    });
-
-    debugMessageEmitter.on("proxymessage", (message: string) => {
-        wss &&
-            wss.clients.forEach((client) => {
-                if (client.readyState === WebSocket.OPEN) {
-                    // encode CDP and send to miniapp
-                    // wrapDebugMessageData(data, category, compressAlgo)
-                    const rawPayload = {
-                        jscontext_id: "",
-                        op_id: Math.round(100 * Math.random()),
-                        payload: message.toString(),
-                    };
-                    logger.main_debug(rawPayload);
-                    const wrappedData = codex.wrapDebugMessageData(
-                        rawPayload,
-                        "chromeDevtools",
-                        0,
-                    );
-                    const outData = {
-                        seq: ++messageCounter,
-                        category: "chromeDevtools",
-                        data: wrappedData.buffer,
-                        compressAlgo: 0,
-                        originalSize: wrappedData.originalSize,
-                    };
-                    const encodedData =
-                        messageProto.mmbizwxadevremote.WARemoteDebug_DebugMessage.encode(
-                            outData,
-                        ).finish();
-                    client.send(encodedData, { binary: true });
-                }
-            });
-    });
-    return wss;
-};
-
-const proxyServer = (options: CliOptions, logger: Logger): WebSocketServer => {
-    const wss = new WebSocketServer({ port: options.cdpPort });
-    logger.info(
-        `[server] proxy server running on ws://localhost:${options.cdpPort}`,
-    );
-    logger.info(
-        `[server] link: devtools://devtools/bundled/inspector.html?ws=127.0.0.1:${options.cdpPort}`,
-    );
-
-    const onMessage = (message: string) => {
-        debugMessageEmitter.emit("proxymessage", message);
-    };
-
-    wss.on("connection", (ws: WebSocket) => {
-        logger.info("[cdp] CDP client connected");
-        ws.on("message", onMessage);
-        ws.on("error", (err) => {
-            logger.error("[cdp] CDP client err:", err);
-        });
-        ws.on("close", () => {
-            logger.info("[cdp] CDP client disconnected");
-        });
-    });
-
-    debugMessageEmitter.on("cdpmessage", (message: string) => {
-        wss &&
-            wss.clients.forEach((client) => {
-                if (client.readyState === WebSocket.OPEN) {
-                    // send CDP message to devtools
-                    client.send(message);
-                }
-            });
-    });
-    return wss;
 };
 
 const autoDetectConfig = async (
@@ -269,7 +137,7 @@ const fridaServer = async (options: CliOptions, logger: Logger): Promise<frida.S
 
     // load script
     const script = await session.createScript(
-        scriptContent.replace("@@CONFIG@@", configContent),
+        scriptContent.replace("@@CONFIG@@", configContent).replace("ws://localhost:9421", `ws://127.0.0.1:${options.debugPort}`),
     );
     script.message.connect((message: frida.Message) => {
         if (message.type === "error") {
@@ -290,19 +158,18 @@ const fridaServer = async (options: CliOptions, logger: Logger): Promise<frida.S
 const main = async () => {
     const options = parse_cli_options();
     const logger = create_logger(options);
-    const debugWss = debugServer(options, logger);
-    const proxyWss = proxyServer(options, logger);
-    const fridaSession = await fridaServer(options, logger);
-
-    process.on("SIGINT", async () => {
-        logger.info("[server] shutting down...");
-        debugWss.close();
-        proxyWss.close();
-        await fridaSession.detach();
-        process.exit(0);
-    });
+    const bridge = await startBridge(options, logger);
+    let session: frida.Session;
+    try { session = await fridaServer(options, logger); }
+    catch (error) { await bridge.close(); throw error; }
+    let stopping = false;
+    const shutdown = async () => {
+        if (stopping) return;
+        stopping = true;
+        await bridge.close();
+        await session.detach();
+    };
+    process.once("SIGINT", () => { void shutdown().then(() => process.exit(0)); });
+    process.once("SIGTERM", () => { void shutdown().then(() => process.exit(0)); });
 };
-
-(async () => {
-    await main();
-})();
+main().catch(error => { console.error(String(error)); process.exitCode = 1; });

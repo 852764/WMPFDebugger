@@ -1,0 +1,16 @@
+{
+  "name": "新发通讯",
+  "shareLink": "#小程序://新发通讯/rqRaFhlN2bAADYn",
+  "dataset": "xinfatongxun",
+  "metric": "sum(product_price * displayed_sales) after deduplication by stable product ID",
+  "mappingStatus": "Inspect actual captured responses before choosing fields and price units.",
+  "mappingExampleOnly": {
+    "itemsPath": "data.list",
+    "idPaths": ["goods_id"],
+    "titlePath": "goods_name",
+    "pricePath": "price",
+    "salesPath": "sales",
+    "priceUnit": "yuan",
+    "onConflict": "exclude"
+  }
+}

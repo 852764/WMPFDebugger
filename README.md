@@ -1,5 +1,8 @@
 # WMPFDebugger
 
+> This fork adds a local mini-program MCP server: structured interaction, network capture, and deduplicated price x sales reports. See [MCP 使用说明](docs/MCP.zh.md) and [client configuration](examples/mcp-servers.json).
+
+
 [English](README.md) | [中文](README.zh.md)
 
 Yet another WeChat Mini-Program Framework (WMPF) debugger.
