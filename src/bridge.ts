@@ -86,6 +86,9 @@ export async function startBridge(options: Pick<CliOptions, "debugPort" | "cdpPo
         const id = pathname.startsWith("/devtools/page/") ? pathname.slice("/devtools/page/".length) : undefined;
         const target = id ? targets.get(id) : pathname === "/" && targets.size === 1 ? [...targets.values()][0] : undefined;
         if (!target) { reject(404, "Select a target from /json/list"); return; }
+        if (target.client && target.client.readyState >= WebSocket.CLOSING) {
+            clearPending(target, target.client); target.client = undefined;
+        }
         if (target.client) { reject(409, "Target already attached; close DevTools or the other MCP connection"); return; }
         proxy.handleUpgrade(req, socket, head, client => {
             target.client = client;

@@ -9,7 +9,7 @@
 在项目根目录运行：
 
 ```powershell
-npm install
+npm ci
 npm run typecheck
 npm test
 npm run debug
@@ -19,7 +19,7 @@ npm run debug
 
 1. 打开微信，先打开任意小程序一次，使 WeChatAppEx 运行时存在；关闭该小程序窗口即可，不必退出微信。
 2. 启动 `npm run debug`，看到 `script loaded` 后继续。
-3. 用 Windows-MCP 或手动重新打开目标小程序。已在注入前打开的窗口通常需要关闭后重开。
+3. 用 Windows-MCP 或手动重新打开目标小程序。Windows 微信 4.x / WMPF 25715 已实测：在目标右上角菜单选择“重新进入小程序”（场景 1183）可以触发注入；仅隐藏窗口再打开不一定触发。此附加场景只对 25715 启用。
 4. AI 客户端启动 `wmpf-miniapp` MCP 服务，调用 `miniapp_targets`、`miniapp_connect`、`miniapp_contexts`，确认目标身份。
 5. 开启抓包后再进入商品列表或翻页，抓取后续请求。
 
@@ -48,7 +48,7 @@ flowchart LR
 
 | 工具 | 用途 |
 | --- | --- |
-| miniapp_targets / connect / disconnect | 发现目标、建立与释放连接 |
+| miniapp_targets / connect / reconnect / disconnect | 发现目标、建立与释放连接 |
 | miniapp_contexts / select_context | 识别 appId、路由、渲染与服务上下文 |
 | miniapp_snapshot | 有数量上限的文本及元素快照，不返回截图 |
 | miniapp_click / type / scroll | 通过元素引用或 CSS 选择器操作页面 |
@@ -127,3 +127,19 @@ Skyline、原生组件、Canvas 或不支持 DOM/Input 的上下文可能无法�
 ## 验证
 
 `npm test` 包含精确金额/去重、CDP 请求关联与超时、捕获容量、迟到响应，以及真实 MCP 客户端经过本地 WMPF Protobuf 代理的完整模拟链路。模拟测试不等同于已验证某个小程序的全部页面和字段。
+
+## 实机验证与重连
+
+2026-10-12 在 Windows、Node.js 24、WMPF 25715 上验证：Windows-MCP 打开新发通讯，MCP 识别 appId `wxcad251ff3aba93a9`、读取 DOM 和页面栈、进入分类/商品列表，并通过 CDP 与 wx.request 两种方式取得 JSON 响应。服务与渲染上下文 ID 会变化，预加载页面可能是空 DOM，不能固定使用最大 contextId。
+
+已观察到 `POST /small-oa/api/product/search` 的 `data.product.list` 中有 `productId`、`ppid`、`price`、`productName` 和 `commentCount`。页面价格与 price（元）一致；`commentCount` 对应页面“人评价”，**不能当作销量**。该样本尚未确认销量字段和全店覆盖范围，因此未生成全店价格乘销量总额。示例映射仍需按真实销量来源补全。
+
+部分切页会让原生调试 WebSocket 重连，但服务上下文继续存在。此时调用 `miniapp_targets` 取得新 targetId，再调用：
+
+```json
+{"targetId":"新目标 ID","expectedAppId":"wxcad251ff3aba93a9"}
+```
+
+将参数交给 `miniapp_reconnect`。它必须匹配开启抓包时的 appId **以及 CDP 服务上下文 uniqueId** 才恢复；保留原请求 ID 和数据集，读取待完成 CDP 响应及 wx 队列。不同小程序或整个运行时重启会被拒绝；这时重新 connect、确认身份、start，并重新加载遗漏页面。恢复不保证所有响应仍在缓存，必须检查 bodyState 和 dropped。
+
+常规 connect/start 会清空旧请求缓冲；已经 ingest 的商品数据集保留。需要连续采集时优先使用经过身份校验的 reconnect，及时 ingest/export。

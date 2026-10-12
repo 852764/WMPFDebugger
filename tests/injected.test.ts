@@ -39,3 +39,17 @@ test("hook queue is bounded and reports dropped responses", () => {
     assert.equal(run(context, "drain").records.length, 0);
     run(context, "remove");
 });
+
+test("configurable accessor APIs used by real WeChat are captured and restored", () => {
+    const wx = {};
+    const original = (options: any) => options.success({ statusCode: 200, data: { goods: [1] } });
+    const descriptor = { configurable: true, enumerable: true, get: () => original, set: (_value: any) => {} };
+    Object.defineProperty(wx, "request", descriptor);
+    const context = createContext({ wx });
+    assert.equal(run(context, "install").installed, true);
+    (wx as any).request({ url: "/products" });
+    assert.equal(run(context, "drain").records.length, 1);
+    run(context, "remove");
+    assert.deepEqual(Object.getOwnPropertyDescriptor(wx, "request"), descriptor);
+    assert.equal((wx as any).request, original);
+});

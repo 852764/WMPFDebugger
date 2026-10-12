@@ -83,91 +83,96 @@ const autoDetectConfig = async (
     }
 };
 
-const fridaServer = async (options: CliOptions, logger: Logger): Promise<frida.Session> => {
+const fridaServer = async (options: CliOptions, logger: Logger): Promise<{ session: frida.Session; script: frida.Script }> => {
     const localDevice = await frida.getLocalDevice();
     const { pid: wmpfPid, version: wmpfVersion } = await platform.findWmpfProcess()
 
     // attach to process
     const session = await localDevice.attach(wmpfPid);
-
-    // find hook script
-    const projectRoot = path.join(
-        path.dirname(
-            (require.main && require.main.filename) ||
-                (process.mainModule && process.mainModule.filename) ||
-                process.cwd(),
-        ),
-        "..",
-    );
-    let scriptContent: string | null = null;
     try {
-        scriptContent = (
-            await promises.readFile(path.join(projectRoot, "frida/hook.js"))
-        ).toString();
-    } catch (e) {
-        throw new Error("[frida] hook script not found");
-    }
-
-    let configContent: string | null = null;
-    if (options.autoDetect) {
-        logger.info(`[frida] auto-detecting hook offsets...`);
-        const config = await autoDetectConfig(session, projectRoot, wmpfVersion);
-        configContent = JSON.stringify(config);
-        logger.info(`[frida] detected hook offsets: ${configContent}`);
-    } else {
+        // find hook script
+        const projectRoot = path.join(
+            path.dirname(
+                (require.main && require.main.filename) ||
+                    (process.mainModule && process.mainModule.filename) ||
+                    process.cwd(),
+            ),
+            "..",
+        );
+        let scriptContent: string | null = null;
         try {
-            configContent = (
-                await promises.readFile(
-                    path.join(
-                        projectRoot,
-                        `frida/config/${process.platform}`,
-                        `addresses.${wmpfVersion}.json`,
-                    ),
-                )
+            scriptContent = (
+                await promises.readFile(path.join(projectRoot, "frida/hook.js"))
             ).toString();
-            configContent = JSON.stringify(JSON.parse(configContent));
         } catch (e) {
-            throw new Error(`[frida] version config not found: ${wmpfVersion}`);
-        }
-    }
-
-    if (scriptContent === null || configContent === null) {
-        throw new Error("[frida] unable to find hook script");
-    }
-
-    // load script
-    const script = await session.createScript(
-        scriptContent.replace("@@CONFIG@@", configContent).replace("ws://localhost:9421", `ws://127.0.0.1:${options.debugPort}`),
-    );
-    script.message.connect((message: frida.Message) => {
-        if (message.type === "error") {
-            logger.error("[frida client]", message);
-            return;
+            throw new Error("[frida] hook script not found");
         }
 
-        logger.frida_debug("[frida client]", message.payload);
-    });
-    await script.load();
-    logger.info(
-        `[frida] script loaded, WMPF version: ${wmpfVersion}, pid: ${wmpfPid}`,
-    );
-    logger.info(`[frida] you can now open any miniapps`);
-    return session;
+        let configContent: string | null = null;
+        if (options.autoDetect) {
+            logger.info(`[frida] auto-detecting hook offsets...`);
+            const config = await autoDetectConfig(session, projectRoot, wmpfVersion);
+            configContent = JSON.stringify(config);
+            logger.info(`[frida] detected hook offsets: ${configContent}`);
+        } else {
+            try {
+                configContent = (
+                    await promises.readFile(
+                        path.join(
+                            projectRoot,
+                            `frida/config/${process.platform}`,
+                            `addresses.${wmpfVersion}.json`,
+                        ),
+                    )
+                ).toString();
+                configContent = JSON.stringify(JSON.parse(configContent));
+            } catch (e) {
+                throw new Error(`[frida] version config not found: ${wmpfVersion}`);
+            }
+        }
+
+        if (scriptContent === null || configContent === null) {
+            throw new Error("[frida] unable to find hook script");
+        }
+
+        // load script
+        const script = await session.createScript(
+            scriptContent.replace("@@CONFIG@@", configContent).replace("ws://localhost:9421", `ws://127.0.0.1:${options.debugPort}`),
+        );
+        script.message.connect((message: frida.Message) => {
+            if (message.type === "error") {
+                logger.error("[frida client]", message);
+                return;
+            }
+
+            logger.frida_debug("[frida client]", message.payload);
+        });
+        await script.load();
+        logger.info(
+            `[frida] script loaded, WMPF version: ${wmpfVersion}, pid: ${wmpfPid}`,
+        );
+        logger.info(`[frida] you can now open any miniapps`);
+        return { session, script };
+    } catch (error) {
+        await session.detach();
+        throw error;
+    }
 };
 
 const main = async () => {
     const options = parse_cli_options();
     const logger = create_logger(options);
     const bridge = await startBridge(options, logger);
-    let session: frida.Session;
-    try { session = await fridaServer(options, logger); }
+    let hook: { session: frida.Session; script: frida.Script };
+    try { hook = await fridaServer(options, logger); }
     catch (error) { await bridge.close(); throw error; }
     let stopping = false;
     const shutdown = async () => {
         if (stopping) return;
         stopping = true;
         await bridge.close();
-        await session.detach();
+        await hook.script.unload();
+        await hook.session.detach();
     };
     process.once("SIGINT", () => { void shutdown().then(() => process.exit(0)); });
     process.once("SIGTERM", () => { void shutdown().then(() => process.exit(0)); });

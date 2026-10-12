@@ -139,7 +139,12 @@ const handleOnLoadStart = (a1, config) => {
         1005, 1007, 1008, 1011, 1012, 1027, 1035, 1037, 1053, 1074, 1145, 1178,
         1256, 1260, 1302, 1308,
     ];
-    if (!sceneNumberArray.includes(miniappScenePtr.readInt())) {
+    send(`[hook] observed launch scene: ${miniappScenePtr.readInt()}`);
+    // WeChat 4.x / WMPF 25715 uses 1183 for the native "re-enter" menu.
+    // Restrict this additional path to the modern layout verified on this build.
+    const modernReentry = getPlatform() === "windows" && config.Version === 25715 && config.MiniAppConfigStructOffsets
+        && miniappScenePtr.readInt() === 1183;
+    if (!sceneNumberArray.includes(miniappScenePtr.readInt()) && !modernReentry) {
         return;
     }
 
@@ -215,6 +220,7 @@ const main = () => {
     const mainModule = getMainModule(config.Version);
     patchOnLoadStart(mainModule.base, config);
     patchCDPFilter(mainModule.base, config);
+    send(`[hook] installed for WMPF ${config.Version}`);
 };
 
 main();

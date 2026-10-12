@@ -14,6 +14,7 @@ export class MiniappSession {
     private captureGeneration = 0;
     private captureMode: "auto" | "cdp" | "wx" = "auto";
     private cdpCaptureEnabled = false;
+    private captureIdentity?: { appId: string; uniqueId: string };
     selectedContext?: number;
     target?: string;
     captureDiagnostics: any[] = [];
@@ -34,7 +35,7 @@ export class MiniappSession {
                 this.logs.push({ method: event.method, ...p });
                 if (this.logs.length > 100) this.logs.shift();
             }
-            this.capture.onEvent(event);
+            if (this.captureMode !== "wx") this.capture.onEvent(event);
         });
         this.cdp.on("disconnected", () => {
             this.contexts.clear(); this.hookContexts.clear(); this.hookPending.clear();
@@ -44,14 +45,45 @@ export class MiniappSession {
 
     async connect(url: string) {
         await this.stopCapture();
-        this.cdp.disconnect(); this.capture.clear(); this.logs.length = 0; this.target = undefined;
+        await this.cdp.disconnect(); this.capture.clear(); this.logs.length = 0; this.target = undefined;
         await this.cdp.connect(url);
         try {
+            // WMPF retains domain state after a frontend disconnect. Re-enable
+            // explicitly so an exclusive new client receives existing contexts.
+            await this.cdp.request("Runtime.disable");
             await this.cdp.request("Runtime.enable");
             this.target = url;
-        } catch (error) { this.cdp.disconnect(); throw error; }
+        } catch (error) { await this.cdp.disconnect(); throw error; }
         return { connected: true, target: url, contexts: [...this.contexts.values()],
             hint: "Probe contexts and verify appId/route before interacting. Capture starts only when requested." };
+    }
+    async reconnect(url: string, expectedAppId: string) {
+        if (this.cdp.connected) throw new Error("Reconnect is only for an interrupted connection");
+        const identity = this.captureIdentity;
+        if (!identity || identity.appId !== expectedAppId) throw new Error("No matching interrupted capture identity; use connect and start a fresh capture");
+        await this.cdp.connect(url);
+        try {
+            await this.cdp.request("Runtime.disable");
+            await this.cdp.request("Runtime.enable");
+            const context = [...this.contexts.values()].find(c => c.uniqueId === identity.uniqueId);
+            if (!context || (await this.run(inspectContext, [], context.id))?.appId !== expectedAppId) {
+                throw new Error("Target is not the same mini-program service context; capture was not resumed");
+            }
+            this.target = url;
+            this.capture.resume();
+            this.captureGeneration++;
+            if (this.captureMode !== "wx") {
+                try { await this.cdp.request("Network.enable", {}, 5000); this.cdpCaptureEnabled = true; }
+                catch (error) { this.captureDiagnostics.push({ cdp: String(error) }); }
+            }
+            if (this.captureMode !== "cdp") {
+                for (const id of [...this.contexts.keys()].slice(0, 40)) await this.installHook(id);
+            }
+            await this.capture.recoverPending();
+            await this.drain();
+            return { connected: true, resumed: true, appId: expectedAppId, target: url, capture: this.capture.list(),
+                hint: "Same service context verified. Inspect bodyState/dropped; responses may be unavailable after a full runtime restart." };
+        } catch (error) { await this.cdp.disconnect(); throw error; }
     }
     async evaluate(expression: string, contextId = this.selectedContext, timeoutMs = 10000): Promise<any> {
         const result = await this.cdp.request("Runtime.evaluate", {
@@ -89,6 +121,8 @@ export class MiniappSession {
                     return;
                 }
                 this.hookContexts.add(contextId);
+                const uniqueId = contextId === undefined ? undefined : this.contexts.get(contextId)?.uniqueId;
+                if (!this.captureIdentity && result.appId && uniqueId) this.captureIdentity = { appId: result.appId, uniqueId };
             }
             this.captureDiagnostics.push({ contextId, ...result });
             if (this.captureDiagnostics.length > 40) this.captureDiagnostics.shift();
@@ -127,6 +161,7 @@ export class MiniappSession {
     async stopCapture() {
         await this.drain();
         this.captureGeneration++;
+        this.captureIdentity = undefined;
         this.capture.stop();
         if (this.cdp.connected) {
             for (const id of [...this.hookContexts]) {
@@ -146,5 +181,5 @@ export class MiniappSession {
         }
         return this.datasets.get(dataset)!;
     }
-    async close() { await this.stopCapture(); this.cdp.disconnect(); }
+    async close() { await this.stopCapture(); await this.cdp.disconnect(); }
 }

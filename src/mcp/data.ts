@@ -6,11 +6,13 @@ export function redact(value: any, depth = 0): any {
     return value;
 }
 export function safeUrl(raw: string): string {
+    if (/^data:/i.test(raw)) return "data:[inline payload omitted]";
     try {
         const url = new URL(raw);
         url.username = ""; url.password = "";
         for (const key of [...url.searchParams.keys()]) if (sensitive.test(key)) url.searchParams.set(key, "[REDACTED]");
-        return url.toString();
+        const clean = url.toString();
+        return clean.length > 2000 ? clean.slice(0, 1980) + "[URL truncated]" : clean;
     } catch { return raw.slice(0, 2000); }
 }
 /** Dot paths plus array indices/wildcards; no eval or arbitrary JSONPath expressions. */

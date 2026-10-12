@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ProductLedger, ProductMapping, moneyFen, salesCount } from "../src/mcp/products";
-import { redact, selectPath } from "../src/mcp/data";
+import { redact, selectPath, safeUrl } from "../src/mcp/data";
 const mapping: ProductMapping = { itemsPath: "data.list", idPaths: ["id"], pricePath: "price", salesPath: "sales", priceUnit: "yuan", onConflict: "exclude" };
 test("deduplicates products across pages and makes repeated ingestion idempotent", () => {
     const ledger = new ProductLedger();
@@ -46,4 +46,11 @@ test("field projections and redaction cannot traverse prototypes", () => {
     assert.deepEqual(selectPath({ data: [{ id: 1 }, { id: 2 }] }, "data[*].id"), [1, 2]);
     assert.throws(() => selectPath({}, "__proto__.x"));
     assert.deepEqual(redact({ token: "secret", data: { price: 5, openid: "user" } }), { token: "[REDACTED]", data: { price: 5, openid: "[REDACTED]" } });
+});
+
+test("request summaries omit inline payloads and bound long URLs after redaction", () => {
+    assert.equal(safeUrl("data:font/woff;base64," + "A".repeat(100000)), "data:[inline payload omitted]");
+    const safe = safeUrl("https://user:pass@shop.test/items?token=secret&query=" + "q".repeat(10000));
+    assert.ok(safe.length <= 2000);
+    assert.ok(!safe.includes("secret") && !safe.includes("pass@"));
 });

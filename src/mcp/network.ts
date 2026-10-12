@@ -18,6 +18,27 @@ export class NetworkCapture {
     constructor(private cdp: CdpClient, private maxRecords = 300, private maxBodyBytes = 512 * 1024, private totalBodyBytes = 16 * 1024 * 1024) {}
     start() { this.clear(); this.active = true; }
     stop() { this.active = false; this.epoch++; }
+    resume() { this.epoch++; this.active = true; }
+    /** Call only after the same service execution context has been verified. */
+    async recoverPending() {
+        const epoch = this.epoch;
+        const pending = [...this.records.values()].filter(r => r.source === "cdp" && r.requestId && r.bodyState === "pending");
+        for (let i = 0; i < pending.length; i += 8) {
+            if (epoch !== this.epoch) break;
+            await Promise.all(pending.slice(i, i + 8).map(async item => {
+                try {
+                    if (item.mimeType && !/json|text|javascript|xml|form-urlencoded/i.test(item.mimeType)) { item.bodyState = "non_text"; return; }
+                    const result = await this.cdp.request("Network.getResponseBody", { requestId: item.requestId }, 3000);
+                    if (epoch !== this.epoch) return;
+                    const body = result.base64Encoded ? Buffer.from(result.body, "base64").toString("utf8") : result.body;
+                    this.setBody(item, body);
+                    this.requests.delete(item.requestId!);
+                } catch (error) {
+                    if (epoch === this.epoch) { item.bodyState = "unavailable"; item.error = String(error); }
+                }
+            }));
+        }
+    }
     clear() { this.epoch++; this.records.clear(); this.requests.clear(); this.bodyBytes = 0; this.dropped = 0; }
     private add(record: Omit<NetworkRecord, "id">): NetworkRecord {
         const item = { ...record, id: String(++this.sequence), url: safeUrl(record.url) };

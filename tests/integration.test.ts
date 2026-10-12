@@ -39,6 +39,7 @@ test("two runtimes remain isolated; MCP captures wx requests and deduplicates ac
     });
     const originalRequest = (context as any).wx.request;
     let seq = 0;
+    let runtimeEnabled = true; // A previous debugger left the domain enabled.
     const send = (message: any) => {
         const data = proto.WARemoteDebug_ChromeDevtoolsResult.encode({ payload: JSON.stringify(message) }).finish();
         runtimeA.send(proto.WARemoteDebug_DebugMessage.encode({
@@ -50,7 +51,11 @@ test("two runtimes remain isolated; MCP captures wx requests and deduplicates ac
         const message = JSON.parse(decoded.data.payload);
         try {
             if (message.method === "Runtime.enable") {
-                send({ method: "Runtime.executionContextCreated", params: { context: { id: 7, name: "AppService", origin: "" } } });
+                if (!runtimeEnabled) send({ method: "Runtime.executionContextCreated", params: { context: { id: 7, name: "AppService", origin: "" } } });
+                runtimeEnabled = true;
+                send({ id: message.id, result: {} });
+            } else if (message.method === "Runtime.disable") {
+                runtimeEnabled = false;
                 send({ id: message.id, result: {} });
             } else if (message.method === "Runtime.evaluate") {
                 const value = runInContext(message.params.expression, context, { timeout: 1000 });
@@ -104,6 +109,9 @@ test("two runtimes remain isolated; MCP captures wx requests and deduplicates ac
         assert.equal(callsToB, 0);
         await call("miniapp_network_stop");
         assert.equal((context as any).wx.request, originalRequest);
+        await call("miniapp_disconnect");
+        await call("miniapp_connect", { port: bridge.address().cdpPort, targetId: targets[0].id });
+        assert.equal((await call("miniapp_contexts")).contexts[0].id, 7);
         runtimeA.close();
         await once(runtimeA, "close");
         await new Promise(r => setTimeout(r, 20));

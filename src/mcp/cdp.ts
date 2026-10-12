@@ -9,7 +9,7 @@ export class CdpClient extends EventEmitter {
     get connected() { return this.socket?.readyState === WebSocket.OPEN; }
 
     async connect(url: string, timeoutMs = 8000): Promise<void> {
-        this.disconnect();
+        await this.disconnect();
         const parsed = new URL(url);
         if (parsed.protocol !== "ws:" || !["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname) || parsed.username || parsed.password) {
             throw new Error("Only local ws:// debugging endpoints are accepted");
@@ -60,11 +60,20 @@ export class CdpClient extends EventEmitter {
         for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(error); }
         this.pending.clear();
     }
-    disconnect() {
+    async disconnect() {
         const socket = this.socket;
         this.socket = undefined;
         this.rejectPending(new Error("CDP connection replaced or closed"));
-        socket?.terminate();
-        if (socket) this.emit("disconnected");
+        if (!socket) return;
+        this.emit("disconnected");
+        if (socket.readyState === WebSocket.CLOSED) return;
+        // Wait for the close handshake so the bridge releases exclusive ownership.
+        await new Promise<void>(resolve => {
+            const timer = setTimeout(() => { socket.terminate(); resolve(); }, 1000);
+            timer.unref();
+            socket.once("close", () => { clearTimeout(timer); resolve(); });
+            if (socket.readyState === WebSocket.OPEN) socket.close();
+            else socket.terminate();
+        });
     }
 }

@@ -19,7 +19,7 @@ export function requestHook(action: "install" | "drain" | "remove") {
         delete g[key];
         return { removed: true };
     }
-    if (state && g.wx?.request === state.wrapper) return { installed: true };
+    if (state && g.wx?.request === state.wrapper) return { installed: true, appId: g.__wxConfig?.accountInfo?.appId || g.__wxConfig?.appId };
     if (!g.wx || typeof g.wx.request !== "function") return { installed: false, reason: "wx.request unavailable in this context" };
     if (state) state.active = false;
     const original = g.wx.request;
@@ -55,9 +55,14 @@ export function requestHook(action: "install" | "drain" | "remove") {
         return original.call(this, wrapped, ...rest);
     };
     try {
-        Object.defineProperty(g.wx, "request", descriptor ? { ...descriptor, value: s.wrapper } : { configurable: true, writable: true, value: s.wrapper });
+        Object.defineProperty(g.wx, "request", {
+            configurable: descriptor?.configurable ?? true,
+            enumerable: descriptor?.enumerable ?? true,
+            writable: descriptor && "writable" in descriptor ? descriptor.writable : true,
+            value: s.wrapper,
+        });
         g[key] = s;
-        return { installed: true };
+        return { installed: true, appId: g.__wxConfig?.accountInfo?.appId || g.__wxConfig?.appId };
     } catch (error) { return { installed: false, reason: String(error) }; }
 }
 

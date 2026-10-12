@@ -19,7 +19,7 @@
 > [提问的智慧](https://github.com/ryanhanwu/How-To-Ask-Questions-The-Smart-Way/blob/main/README-zh_CN.md)
 
 > [!CAUTION]
-> **不要使用 NPM 包管理器！** 此项目使用 `yarn` 包管理器。
+> 上游使用 `yarn`。本 MCP 分支额外提供经测试的 `package-lock.json`，可使用 `npm ci` 安装锁定版本；不要在同一工作目录交替使用两种包管理器。
 > 
 > **不要删除 `yarn.lock`！** frida API 更新很快，需要锁依赖版本。
 

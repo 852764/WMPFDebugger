@@ -40,6 +40,9 @@ export function createMcpServer(session = new MiniappSession()) {
     tool("miniapp_connect", "Attach to exactly one target. Probe contexts to verify app identity. Close other DevTools clients first.", {
         port: portSchema, targetId: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/),
     }, ({ port, targetId }) => session.connect("ws://127.0.0.1:" + port + "/devtools/page/" + targetId));
+    tool("miniapp_reconnect", "Resume an interrupted auto/wx capture after navigation. Requires the same verified service context and expected appId; refuses different apps or a full runtime restart. Keeps prior request IDs and datasets.", {
+        port: portSchema, targetId: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/), expectedAppId: z.string().min(1).max(100),
+    }, ({ port, targetId, expectedAppId }) => session.reconnect("ws://127.0.0.1:" + port + "/devtools/page/" + targetId, expectedAppId));
     tool("miniapp_disconnect", "Stop capture, restore wx.request, disconnect CDP. Aggregated datasets remain until reset.", {}, async () => { await session.close(); return { connected: false }; });
     tool("miniapp_contexts", "Inspect execution contexts, appId, routes, DOM and wx.request capabilities. Service and renderer contexts differ.", {}, () => session.describeContexts(), true);
     tool("miniapp_select_context", "Select a context ID returned by miniapp_contexts for subsequent tools.", { contextId: z.number().int() }, ({ contextId }) => {
