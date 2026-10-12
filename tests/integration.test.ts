@@ -15,8 +15,9 @@ const logger = { info() {}, error() {}, main_debug() {}, frida_debug() {} };
 test("two runtimes remain isolated; MCP captures wx requests and deduplicates across pages end to end", { timeout: 20000 }, async () => {
     const bridge = await startBridge({ debugPort: 0, cdpPort: 0 }, logger);
     const runtimeA = new WebSocket("ws://127.0.0.1:" + bridge.address().debugPort);
+    await once(runtimeA, "open");
     const runtimeB = new WebSocket("ws://127.0.0.1:" + bridge.address().debugPort);
-    await Promise.all([once(runtimeA, "open"), once(runtimeB, "open")]);
+    await once(runtimeB, "open");
     let callsToB = 0;
     runtimeB.on("message", () => callsToB++);
     let page = 0;

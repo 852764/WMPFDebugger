@@ -7,7 +7,13 @@ import { Logger } from "./logger";
 
 const codex = require("./third-party/RemoteDebugCodex.js");
 const proto = require("./third-party/WARemoteDebugProtobuf.js").mmbizwxadevremote;
-type Target = { id: string; runtime: WebSocket; client?: WebSocket; connectedAt: string };
+type Pending = { originalId: number; client: WebSocket; timer: NodeJS.Timeout };
+type Target = { id: string; runtime: WebSocket; client?: WebSocket; connectedAt: string; pending: Map<number, Pending> };
+function clearPending(target: Target, client?: WebSocket) {
+    for (const [id, pending] of target.pending) {
+        if (!client || pending.client === client) { clearTimeout(pending.timer); target.pending.delete(id); }
+    }
+}
 
 /** One selected runtime per CDP connection. Exclusive ownership prevents CDP ID collisions. */
 export async function startBridge(options: Pick<CliOptions, "debugPort" | "cdpPort">, logger: Logger) {
@@ -42,7 +48,7 @@ export async function startBridge(options: Pick<CliOptions, "debugPort" | "cdpPo
         return { debugPort: (debug.address() as { port: number }).port, cdpPort: (http.address() as { port: number }).port };
     }
     debug.on("connection", runtime => {
-        const target: Target = { id: randomUUID(), runtime, connectedAt: new Date().toISOString() };
+        const target: Target = { id: randomUUID(), runtime, connectedAt: new Date().toISOString(), pending: new Map() };
         targets.set(target.id, target);
         logger.info("[miniapp] connected target", target.id);
         runtime.on("message", bytes => {
@@ -50,13 +56,21 @@ export async function startBridge(options: Pick<CliOptions, "debugPort" | "cdpPo
                 const decoded = proto.WARemoteDebug_DebugMessage.decode(bytes);
                 const message = codex.unwrapDebugMessageData(decoded);
                 if (message?.category === "chromeDevtoolsResult" && target.client?.readyState === WebSocket.OPEN) {
-                    target.client.send(String(message.data.payload));
+                    const response = JSON.parse(String(message.data.payload));
+                    if (typeof response.id === "number") {
+                        const pending = target.pending.get(response.id);
+                        if (!pending || pending.client !== target.client) return;
+                        clearTimeout(pending.timer); target.pending.delete(response.id);
+                        response.id = pending.originalId;
+                    }
+                    target.client.send(JSON.stringify(response));
                 }
             } catch (error) { logger.error("[miniapp] invalid debug frame", String(error)); }
         });
         runtime.on("error", error => logger.error("[miniapp]", error.message));
         runtime.on("close", () => {
             targets.delete(target.id);
+            clearPending(target);
             target.client?.close(1011, "Mini-program disconnected; list targets and reconnect");
             logger.info("[miniapp] disconnected target", target.id);
         });
@@ -78,9 +92,24 @@ export async function startBridge(options: Pick<CliOptions, "debugPort" | "cdpPo
             client.on("message", bytes => {
                 if (target.runtime.readyState !== WebSocket.OPEN) { client.close(1011, "Runtime disconnected"); return; }
                 try {
-                    const payload = bytes.toString();
-                    JSON.parse(payload);
-                    const wrapped = codex.wrapDebugMessageData({ jscontext_id: "", op_id: ++sequence, payload }, "chromeDevtools", 0);
+                    const request = JSON.parse(bytes.toString());
+                    const wireId = ++sequence;
+                    if (typeof request.id === "number") {
+                        const originalId = request.id;
+                        if (target.pending.size >= 1000) {
+                            client.send(JSON.stringify({ id: originalId, error: { code: -32000, message: "Too many pending CDP commands" } }));
+                            return;
+                        }
+                        const timer = setTimeout(() => {
+                            target.pending.delete(wireId);
+                            if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ id: originalId, error: { code: -32000, message: "Runtime command timed out" } }));
+                        }, 30000);
+                        timer.unref();
+                        target.pending.set(wireId, { originalId, client, timer });
+                        request.id = wireId;
+                    }
+                    const payload = JSON.stringify(request);
+                    const wrapped = codex.wrapDebugMessageData({ jscontext_id: "", op_id: wireId, payload }, "chromeDevtools", 0);
                     target.runtime.send(proto.WARemoteDebug_DebugMessage.encode({
                         seq: sequence, category: "chromeDevtools", data: wrapped.buffer,
                         compressAlgo: 0, originalSize: wrapped.originalSize,
@@ -88,14 +117,14 @@ export async function startBridge(options: Pick<CliOptions, "debugPort" | "cdpPo
                 } catch (error) { logger.error("[cdp] invalid frame", String(error)); }
             });
             client.on("error", error => logger.error("[cdp]", error.message));
-            client.on("close", () => { if (target.client === client) target.client = undefined; });
+            client.on("close", () => { clearPending(target, client); if (target.client === client) target.client = undefined; });
         });
     });
     const debugReady = once(debug, "listening");
     const httpReady = once(http, "listening");
     http.listen(options.cdpPort, "127.0.0.1");
     async function close() {
-        for (const target of targets.values()) { target.client?.terminate(); target.runtime.terminate(); }
+        for (const target of targets.values()) { clearPending(target); target.client?.terminate(); target.runtime.terminate(); }
         await Promise.all([
             new Promise<void>(resolve => debug.close(() => resolve())),
             new Promise<void>(resolve => proxy.close(() => resolve())),
