@@ -76,7 +76,9 @@ test("two runtimes remain isolated; MCP captures wx requests and deduplicates ac
         return JSON.parse((result.content as any)[0].text);
     };
     try {
-        assert.ok((await client.listTools()).tools.length >= 20);
+        const registered=(await client.listTools()).tools.map(t=>t.name);
+        for(const name of ["miniapp_batch_start","miniapp_batch_resume","miniapp_batch_status","miniapp_batch_report","miniapp_batch_cancel","miniapp_batch_evidence","miniapp_batch_adapt"])assert.ok(registered.includes(name),"Missing MCP tool: "+name);
+        assert.ok(registered.length >= 27);
         const targets = await call("miniapp_targets", { port: bridge.address().cdpPort });
         assert.equal(targets.length, 2);
         // Root legacy endpoint must not choose a random mini-program.

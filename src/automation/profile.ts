@@ -2,6 +2,7 @@ import { z } from "zod";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { catalogKey } from "./identity";
 import { redact } from "../mcp/data";
 const withoutCredentials = (value: unknown) => JSON.stringify(value) === JSON.stringify(redact(value));
 const field = z.string().min(1).max(200).refine(s => !s.split(/[.\[\]]/).some(p => ["__proto__", "prototype", "constructor"].includes(p)), "Unsafe field path");
@@ -72,15 +73,20 @@ export function parseMiniappLink(raw: string): MiniappLink {
     return { raw: raw.trim(), name: match[1], code: match[2] };
 }
 export const profilesRoot = path.resolve(__dirname, "../../profiles");
+export const learnedProfilesRoot = path.resolve(__dirname, "../../artifacts/profiles");
 export async function listProfiles(): Promise<AutomationProfile[]> {
-    await fs.mkdir(profilesRoot, { recursive: true });
-    const files = (await fs.readdir(profilesRoot)).filter(n => /^[a-z0-9_-]+\.json$/.test(n));
-    return Promise.all(files.map(async (name) => profileSchema.parse(JSON.parse(await fs.readFile(path.join(profilesRoot, name), "utf8")))));
+    const result: AutomationProfile[] = [];
+    for (const root of [profilesRoot, learnedProfilesRoot]) {
+        await fs.mkdir(root, { recursive: true });
+        const files = (await fs.readdir(root)).filter(n => /^[a-z0-9_-]+\.json$/.test(n));
+        for (const name of files) result.push(profileSchema.parse(JSON.parse(await fs.readFile(path.join(root, name), "utf8"))));
+    }
+    return result;
 }
 export async function resolveProfile(link: MiniappLink, id?: string): Promise<AutomationProfile> {
     const profiles = await listProfiles();
     const matching = profiles.filter(p => p.shareNames.includes(link.name) && p.shareCodes.includes(link.code) && (!id || p.id === id));
-    if (matching.length !== 1)
+    if (!matching.length || new Set(matching.map(catalogKey)).size !== 1)
         throw new Error("PROFILE_REQUIRED: No unique verified profile for " + link.name + ". Discover the app first and save a profile with field and pagination evidence.");
     return matching[0];
 }

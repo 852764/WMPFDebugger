@@ -4,6 +4,10 @@
 
 本分支基于 [evi0s/WMPFDebugger](https://github.com/evi0s/WMPFDebugger)，保留上游 Frida 注入、版本配置、贡献者和 GPL-2.0-only 许可证。新增本地 stdio MCP 服务，由已有 AI 客户端调用，不需要在项目里配置模型 API key。
 
+## 批量小程序
+
+批量链接、未知小程序 AI 适配、无销量跳过与报告见[批量流程说明](BATCH.zh.md)。新增 `miniapp_batch_start/resume/status/report/cancel/evidence/adapt` 工具。
+
 ## 运行方式
 
 需要 Node.js 22+、桌面微信以及上游支持的 WMPF 版本。Windows-MCP 单独使用，其运行依赖见 [官方文档](https://github.com/CursorTouch/Windows-MCP)。

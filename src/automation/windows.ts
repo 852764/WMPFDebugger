@@ -101,7 +101,7 @@ export class WindowsLauncher {
         return point ? { x: Math.round(rect.left + point.x * scan.sx), y: Math.round(rect.top + point.y * scan.sy) } : undefined;
     }
     private async click(x: number, y: number) { await this.call("Click", { loc: [Math.round(x), Math.round(y)] }); await sleep(600, this.signal); }
-    async open(profile: AutomationProfile) {
+    async open(profile: Pick<AutomationProfile, "name">) {
         await this.call("Shortcut", { shortcut: "ctrl+alt+w" });
         await sleep(800, this.signal);
         let w;
@@ -160,7 +160,7 @@ export class WindowsLauncher {
         await this.click(result.x, result.y);
         await sleep(1600, this.signal);
     }
-    async reenter(profile: AutomationProfile) {
+    async reenter(profile: Pick<AutomationProfile, "windowTitle">) {
         if (!profile.windowTitle)
             throw Error("REENTRY_REQUIRED: Reopen the mini-program once after debugger startup.");
         const w = await this.window(profile.windowTitle), scale = w.dpi / 96;

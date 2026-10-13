@@ -10,7 +10,7 @@ export type RunState = {
     link: MiniappLink;
     profileId: string;
     profileHash: string;
-    status: "running" | "completed" | "incomplete" | "needs_input" | "failed" | "cancelled";
+    status: "running" | "completed" | "incomplete" | "needs_input" | "failed" | "cancelled" | "skipped_no_sales";
     stage: string;
     createdAt: string;
     updatedAt: string;
@@ -25,7 +25,7 @@ export function runDirectory(id: string) {
         throw new Error("Invalid run ID");
     return path.join(runsRoot, id);
 }
-async function atomicJson(file: string, value: unknown) {
+export async function atomicJson(file: string, value: unknown) {
     const temp = file + "." + randomUUID() + ".tmp";
     await fs.writeFile(temp, JSON.stringify(value, null, 2) + "\n", "utf8");
     await fs.rename(temp, file);

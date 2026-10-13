@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { parseMiniappLink, resolveProfile } from "./profile";
+import { AutomationProfile, parseMiniappLink, resolveProfile } from "./profile";
 import { RunStorage, runsRoot, readRun, readReport } from "./storage";
 import { RuntimeConnection, PageResponse, sleep } from "./runtime";
 import { parsePage } from "./catalog";
@@ -47,7 +47,10 @@ export async function collect(storage: RunStorage, runtime: CollectionRuntime, s
                 await sleep(Math.max(profile.limits.intervalMs, Math.min(30000, response?.retryAfterMs || 500 * 2 ** attempt)), signal);
             }
         }
-        await storage.page(parsePage(profile, response!.data, catalog.receipts.length + 1, catalog.nextCursor()));
+        const receipt = parsePage(profile, response!.data, catalog.receipts.length + 1, catalog.nextCursor());
+        await storage.page(receipt);
+        if (catalog.exhausted() && catalog.receipts.length>0 && catalog.receipts.every(page=>page.items.every(item=>item.sales===null||item.sales===undefined||item.sales==="")))
+            throw Error("NO_SALES: No sales values across the complete observed catalog; skipped by policy.");
         if (!catalog.exhausted())
             await sleep(profile.limits.intervalMs, signal);
     }
@@ -120,6 +123,13 @@ export class AutomationManager {
         void done.catch(() => { });
         return { ...storage.state };
     }
+    // Called by the batch owner while it holds the same global collection lock.
+    async runResolved(options: RunOptions, profile: AutomationProfile, signal: AbortSignal, created?: (id: string) => Promise<void>) {
+        const storage = await RunStorage.open(parseMiniappLink(options.link), profile, options.resumeId);
+        await created?.(storage.state.id);
+        await this.execute(storage, options, signal);
+        return storage.state;
+    }
     private async execute(storage: RunStorage, options: RunOptions, signal: AbortSignal) {
         const runtime = new RuntimeConnection(storage.catalog.profile, options.port);
         const debuggerProcess = new DebuggerProcess(options.port);
@@ -171,7 +181,7 @@ export class AutomationManager {
         catch (error) {
             const message = String(error).slice(0, 1500);
             await storage.export();
-            await storage.update({ status: signal.aborted ? "cancelled" : /DESKTOP_|LAUNCH_|WINDOW_|WINDOWS_MCP_|OPEN_MINIAPP_|REENTRY_|REQUEST_TEMPLATE_REQUIRED/.test(message) ? "needs_input" : "failed", stage: "stopped", error: message });
+            await storage.update({ status: signal.aborted ? "cancelled" : message.includes("NO_SALES:") ? "skipped_no_sales" : /DESKTOP_|LAUNCH_|WINDOW_|WINDOWS_MCP_|OPEN_MINIAPP_|REENTRY_|REQUEST_TEMPLATE_REQUIRED/.test(message) ? "needs_input" : "failed", stage: "stopped", error: message });
         }
         finally {
             try {

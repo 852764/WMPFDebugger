@@ -26,16 +26,30 @@ export function runtimeRequest(request: AutomationProfile["request"] & {
         throw new Error("REQUEST_TEMPLATE_REQUIRED: Open or refresh the verified product list once to observe its request.");
     if (typeof g.wx?.request !== "function")
         throw new Error("wx.request unavailable");
-    let data: any = { ...(typeof template?.data === "object" ? template.data : {}), ...request.data };
-    if (typeof template?.data === "string") {
-        const flat: Record<string, any> = {};
-        for (const entry of template.data.split("&")) {
-            const pos = entry.indexOf("=");
-            const decode = (s: string) => decodeURIComponent(s.replace(/\+/g, " "));
-            flat[decode(pos < 0 ? entry : entry.slice(0, pos))] = decode(pos < 0 ? "" : entry.slice(pos + 1));
+    const merge = (base: any, next: any): any => {
+        const out = { ...(base && typeof base === "object" && !Array.isArray(base) ? base : {}) };
+        for (const [key, value] of Object.entries(next || {})) {
+            if (["__proto__", "prototype", "constructor"].includes(key)) throw Error("Unsafe request key");
+            out[key] = value && typeof value === "object" && !Array.isArray(value) ? merge(out[key], value) : value;
         }
-        Object.assign(flat, request.data);
-        data = Object.entries(flat).map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(String(v))).join("&");
+        return out;
+    };
+    let data: any = merge(typeof template?.data === "object" ? template.data : {}, request.data);
+    if (typeof template?.data === "string") {
+        let parsed: any;
+        try { parsed = JSON.parse(template.data); } catch {}
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) data = JSON.stringify(merge(parsed, request.data));
+        else {
+            const flat: Record<string, any> = Object.create(null);
+            for (const entry of template.data.split("&")) {
+                const pos = entry.indexOf("="), decode = (s: string) => decodeURIComponent(s.replace(/\+/g, " "));
+                const key = decode(pos < 0 ? entry : entry.slice(0, pos));
+                if (["__proto__", "prototype", "constructor"].includes(key)) throw Error("Unsafe request key");
+                flat[key] = decode(pos < 0 ? "" : entry.slice(pos + 1));
+            }
+            Object.assign(flat, request.data);
+            data = Object.entries(flat).map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(String(v))).join("&");
+        }
     }
     return new Promise((resolve, reject) => {
         g.wx.request({
